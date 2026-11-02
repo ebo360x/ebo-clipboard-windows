@@ -39,6 +39,8 @@ def notify_running_instance():
 
 def main():
     app = QApplication(sys.argv)
+    app.setApplicationName("ebo clipboard")
+    app.setApplicationDisplayName("ebo clipboard")
 
     if notify_running_instance():
         sys.exit(0)

@@ -208,8 +208,8 @@ QLabel#proBadge { background: #0F2A3D; border: 1px solid #1D4E6E; border-radius:
 QFrame#sidebarFooter { background: #0D1117; border: 1px solid #1F2738; border-radius: 12px; }
 QFrame#localAvatar { background: #161C28; border: 1px solid #263047; border-radius: 10px; }
 QLabel#localAvatarText { background: transparent; color: #38BDF8; font-size: 15px; font-weight: bold; }
-QLabel#localStatus { background: transparent; color: #E6EAF2; font-size: 12px; font-weight: bold; }
-QLabel#localStatusDetail { background: transparent; color: #8D99AE; font-size: 10px; }
+QLabel#localStatus { background: transparent; color: #E6EAF2; font-size: 16px; font-weight: bold; }
+QLabel#localStatusDetail { background: transparent; color: #8D99AE; font-size: 11px; }
 QLabel#localStatusDetail[state="ok"] { color: #34D399; }
 QLabel#localStatusDetail[state="syncing"] { color: #FBBF24; }
 QLabel#localStatusDetail[state="error"] { color: #F87171; }
@@ -1040,16 +1040,20 @@ class MainWindow(QMainWindow):
     def _update_sync_footer(self):
         state = self.sync.state
         message = self.sync.message
-        if not self.sync.configured():
+        repo = (self.store.get_setting("sync_repo") or "").strip()
+        github_username = repo.split("/", 1)[0] if "/" in repo else repo
+        configured = self.sync.configured()
+        self.sync_avatar_label.setText(github_username[:1].upper() if configured and github_username else "ع")
+        if not configured:
             title, detail, tone = "حساب محلي", "البيانات محفوظة على هذا الجهاز — اضغط ⟳ لتفعيل المزامنة", "off"
         elif state == "syncing":
-            title, detail, tone = "المزامنة مع GitHub", "جاري المزامنة...", "syncing"
+            title, detail, tone = github_username, "جاري المزامنة...", "syncing"
         elif state == "error":
-            title, detail, tone = "المزامنة مع GitHub", "فشلت المزامنة", "error"
+            title, detail, tone = github_username, "فشلت المزامنة", "error"
         else:
             last = self.sync.last_sync_ms()
             detail = f"آخر مزامنة: {relative_time_ar(last)}" if last else "جاهزة للمزامنة"
-            title, tone = "المزامنة مع GitHub", "ok"
+            title, tone = github_username, "ok"
         self.sync_title_label.setText(title)
         self.sync_detail_label.setText(detail)
         self.sync_detail_label.setToolTip(message if state == "error" else "")
@@ -1091,7 +1095,7 @@ class MainWindow(QMainWindow):
         self._window_size_save_timer.setInterval(300)
         self._window_size_save_timer.timeout.connect(self._save_window_size)
 
-        self.setWindowTitle("ClipMaster")
+        self.setWindowTitle("ebo clipboard")
         screen = QApplication.primaryScreen()
         available = screen.availableGeometry() if screen is not None else QRect(0, 0, 1536, 864)
         self.setMinimumSize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
@@ -1138,7 +1142,7 @@ class MainWindow(QMainWindow):
         brand_text.setSpacing(1)
         brand_title_row = QHBoxLayout()
         brand_title_row.setSpacing(6)
-        brand = QLabel("ClipMaster")
+        brand = QLabel("ebo clipboard")
         brand.setObjectName("appTitle")
         pro_badge = QLabel("PRO")
         pro_badge.setObjectName("proBadge")
@@ -1208,14 +1212,20 @@ class MainWindow(QMainWindow):
         avatar_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         avatar_layout.addWidget(avatar_text)
         footer_layout.addWidget(avatar)
+        self.sync_avatar_label = avatar_text
 
         local_status_layout = QVBoxLayout()
         local_status_layout.setContentsMargins(0, 0, 0, 0)
         local_status_layout.setSpacing(1)
         self.sync_title_label = QLabel("حساب محلي")
         self.sync_title_label.setObjectName("localStatus")
+        self.sync_title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sync_title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.sync_detail_label = QLabel("البيانات محفوظة على هذا الجهاز")
         self.sync_detail_label.setObjectName("localStatusDetail")
+        self.sync_detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sync_detail_label.setWordWrap(True)
+        self.sync_detail_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         local_status_layout.addWidget(self.sync_title_label)
         local_status_layout.addWidget(self.sync_detail_label)
         footer_layout.addLayout(local_status_layout, 1)
@@ -1371,7 +1381,7 @@ class MainWindow(QMainWindow):
 
     def _import_messages(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "استيراد الرسائل", "", "Ebo Clipboard (*.zdb);;All files (*)"
+            self, "استيراد الرسائل", "", "ebo clipboard (*.zdb);;All files (*)"
         )
         if not path:
             return
@@ -1386,7 +1396,7 @@ class MainWindow(QMainWindow):
 
     def _export_messages(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "تصدير الرسائل", "backup.zdb", "Ebo Clipboard (*.zdb)"
+            self, "تصدير الرسائل", "backup.zdb", "ebo clipboard (*.zdb)"
         )
         if not path:
             return

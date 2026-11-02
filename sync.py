@@ -1,4 +1,4 @@
-"""مزامنة ClipMaster عبر GitHub (مستودع خاص) من غير سيرفر.
+"""مزامنة ebo clipboard عبر GitHub (مستودع خاص) من غير سيرفر.
 
 الفكرة: كل رسالة ومجموعة ليها معرّف ثابت ووقت آخر تعديل. عند المزامنة بنسحب
 data.json من المستودع، وندمجه مع البيانات المحلية (آخر تعديل بيكسب)، وبعدين
@@ -138,7 +138,7 @@ class GitHubBackend:
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "ClipMaster-Sync",
+            "User-Agent": "ebo-clipboard-Sync",
             "Content-Type": "application/json",
         })
         try:
@@ -230,7 +230,7 @@ class GitHubBackend:
         return result
 
     def _bootstrap(self):
-        body = {"message": "init", "content": base64.b64encode(b"# ClipMaster data\n").decode()}
+        body = {"message": "init", "content": base64.b64encode(b"# ebo clipboard data\n").decode()}
         status, payload = self._call("PUT", "/contents/README.md", body)
         self._expect(status, payload, (200, 201))
 
