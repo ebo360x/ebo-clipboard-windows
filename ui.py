@@ -725,10 +725,10 @@ def relative_time_ar(ms):
     if seconds < 45:
         return "الآن"
     if seconds < 3600:
-        return f"منذ {max(1, int(seconds // 60))} دقيقة"
+        return f"{max(1, int(seconds // 60))} د"
     if seconds < 86400:
-        return f"منذ {int(seconds // 3600)} ساعة"
-    return f"منذ {int(seconds // 86400)} يوم"
+        return f"{int(seconds // 3600)} س"
+    return f"{int(seconds // 86400)} ي"
 
 
 class SettingsDialog(QDialog):
@@ -1224,7 +1224,7 @@ class MainWindow(QMainWindow):
         self.sync_detail_label = QLabel("البيانات محفوظة على هذا الجهاز")
         self.sync_detail_label.setObjectName("localStatusDetail")
         self.sync_detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.sync_detail_label.setWordWrap(True)
+        self.sync_detail_label.setWordWrap(False)
         self.sync_detail_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         local_status_layout.addWidget(self.sync_title_label)
         local_status_layout.addWidget(self.sync_detail_label)
