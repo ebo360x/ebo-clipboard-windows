@@ -1051,7 +1051,7 @@ class MainWindow(QMainWindow):
         elif state == "error":
             title, detail, tone = github_username, "فشلت المزامنة", "error"
         elif state == "offline":
-            title, detail, tone = github_username, "غير متصل — هيعيد المحاولة تلقائيًا", "syncing"
+            title, detail, tone = github_username, "غير متصل حاليًا", "syncing"
         elif state == "ok" and message:
             title, detail, tone = github_username, message, "ok"
         else:
@@ -1060,7 +1060,7 @@ class MainWindow(QMainWindow):
             title, tone = github_username, "ok"
         self.sync_title_label.setText(title)
         self.sync_detail_label.setText(detail)
-        self.sync_detail_label.setToolTip(message if state in ("error", "offline") else "")
+        self.sync_detail_label.setToolTip(message if message != detail else "")
         self.sync_detail_label.setProperty("state", tone)
         self.sync_detail_label.style().unpolish(self.sync_detail_label)
         self.sync_detail_label.style().polish(self.sync_detail_label)
@@ -1154,9 +1154,6 @@ class MainWindow(QMainWindow):
         brand_title_row.addWidget(pro_badge)
         brand_title_row.addStretch(1)
         brand_text.addLayout(brand_title_row)
-        brand_note = QLabel("مدير الحافظة والرسائل")
-        brand_note.setObjectName("sidebarSubtitle")
-        brand_text.addWidget(brand_note)
         brand_layout.addLayout(brand_text, 1)
         sidebar_layout.addWidget(sidebar_header)
 
@@ -1510,13 +1507,14 @@ class MainWindow(QMainWindow):
         if query:
             self.messages_heading.setText("نتائج البحث")
             self.messages_subtitle.setText("البحث في كل المجموعات")
+            self.messages_subtitle.setVisible(True)
         else:
             current_group = next(
                 (group for group in self.store.list_groups() if group["id"] == self.current_group_id),
                 None,
             )
             self.messages_heading.setText(current_group["name"] if current_group else "الرسائل")
-            self.messages_subtitle.setText("اسحب أي رسالة لتغيير مكانها")
+            self.messages_subtitle.setVisible(False)
 
         self.msg_list.setDragEnabled(False)
         self.msg_list.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)

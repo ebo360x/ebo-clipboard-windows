@@ -501,7 +501,7 @@ if QTimer is not None:
                 self._finish("error", self._describe(error), error)
                 return
             if remote is None:
-                self._finish("ok", "لا توجد تغييرات جديدة على GitHub")
+                self._finish("ok", "كل حاجة متزامنة")
                 return
             try:
                 plan = self._engine.merge_phase(remote, images)
@@ -512,7 +512,7 @@ if QTimer is not None:
                 self.data_changed.emit()
             if not plan.needs_push:
                 self._engine.record(remote.commit, plan.merged)
-                self._finish("ok", "اكتملت المزامنة؛ لا توجد تغييرات تحتاج إلى رفع")
+                self._finish("ok", "كل حاجة متزامنة")
                 return
             self._remote, self._plan = remote, plan
             backend, engine = self._engine.backend, self._engine
@@ -539,7 +539,7 @@ if QTimer is not None:
                 self._finish("error", self._describe(error), error)
                 return
             self._engine.record(commit, self._plan.merged)
-            self._finish("ok", "تم رفع التغييرات إلى GitHub")
+            self._finish("ok", "تم رفع التعديلات")
 
         def _describe(self, error):
             return str(error) if isinstance(error, SyncError) else f"خطأ غير متوقع: {error}"

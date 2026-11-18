@@ -6,7 +6,7 @@ from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 from db import Store
 from hotkeys import HotkeyListener
-from ui import MainWindow
+from ui import MainWindow, load_app_icon
 
 INSTANCE_KEY = "ebo-clipboard-single-instance"
 
@@ -50,10 +50,23 @@ def start_single_instance_server():
     return server
 
 
+def set_windows_app_id():
+    """من غير ده ويندوز بيعتبر البرنامج pythonw.exe ويحط أيقونة بايثون في الـ taskbar."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ebo.clipboard")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main():
+    set_windows_app_id()
     app = QApplication(sys.argv)
     app.setApplicationName("ebo clipboard")
     app.setApplicationDisplayName("ebo clipboard")
+    app.setWindowIcon(load_app_icon())
 
     if notify_running_instance():
         sys.exit(0)
