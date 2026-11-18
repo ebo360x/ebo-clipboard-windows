@@ -8,6 +8,7 @@ from db import Store
 from hotkeys import HotkeyListener
 from ui import MainWindow, load_app_icon
 from version import __version__
+import updater
 
 INSTANCE_KEY = "ebo-clipboard-single-instance"
 
@@ -64,6 +65,8 @@ def set_windows_app_id():
 
 def main():
     set_windows_app_id()
+    # بعد التحديث: استنى النسخة القديمة تقفل علشان ماتفتكرش إنها لسه شغالة
+    updater.wait_for_previous_instance(sys.argv)
     app = QApplication(sys.argv)
     app.setApplicationName("ebo clipboard")
     app.setApplicationDisplayName("ebo clipboard")
@@ -71,6 +74,7 @@ def main():
     app.setWindowIcon(load_app_icon())
 
     if notify_running_instance():
+        updater.log("another copy is already running; showing it and exiting")
         sys.exit(0)
 
     instance_server = start_single_instance_server()

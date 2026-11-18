@@ -6,16 +6,22 @@ from PyQt6.QtWidgets import (
     QWidget, QMainWindow, QListWidget, QListWidgetItem, QLineEdit, QPushButton,
     QVBoxLayout, QHBoxLayout, QLabel, QDialog, QTextEdit, QMenu, QSystemTrayIcon,
     QFileDialog, QMessageBox, QAbstractItemView, QInputDialog,
-    QFrame, QApplication, QListView, QToolTip, QSizePolicy, QGraphicsDropShadowEffect
+    QFrame, QApplication, QListView, QToolTip, QSizePolicy, QGraphicsDropShadowEffect,
+    QProgressDialog
 )
 from PyQt6.QtCore import (
     Qt, QTimer, QSize, pyqtSignal, QEvent, QBuffer, QIODevice, QMimeData,
     QPoint, QRect, QPropertyAnimation, QEasingCurve, QByteArray, QAbstractAnimation,
     QSettings
 )
+from PyQt6.QtCore import QUrl
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtGui import QAction, QDrag, QIcon, QKeySequence, QImage, QPixmap, QBitmap, QRegion, QColor, QPainter, QFontDatabase
 from PyQt6.QtSvg import QSvgRenderer
 from sync import SyncManager, GitHubBackend, SyncError, load_token, save_token
+import updater
+from updater import UpdateManager
+from version import __version__
 
 import inputsim
 
@@ -787,6 +793,21 @@ class SettingsDialog(QDialog):
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
+
+        layout.addSpacing(6)
+        update_heading = QLabel("التحديثات")
+        update_heading.setObjectName("sectionheading")
+        layout.addWidget(update_heading)
+        update_row = QHBoxLayout()
+        update_row.addWidget(QLabel(f"النسخة الحالية: {__version__}"))
+        update_row.addStretch(1)
+        self.update_btn = QPushButton("التحقق من التحديثات")
+        self.update_btn.clicked.connect(self._check_updates)
+        update_row.addWidget(self.update_btn)
+        layout.addLayout(update_row)
+        self.update_label = QLabel("")
+        self.update_label.setWordWrap(True)
+        layout.addWidget(self.update_label)
         layout.addStretch(1)
 
         close_btn = QPushButton("إغلاق")
@@ -831,6 +852,34 @@ class SettingsDialog(QDialog):
         self.on_change()
         if self.sync is not None:
             self.sync.sync_now("setup")
+
+    def _check_updates(self):
+        updates = getattr(self.parent(), "updates", None)
+        if updates is None:
+            return
+        self.update_btn.setEnabled(False)
+        self.update_label.setStyleSheet("")
+        self.update_label.setText("جاري التحقق...")
+        updates.check_finished.connect(self._on_update_checked)
+        updates.check(manual=True)
+
+    def _on_update_checked(self, tag, error):
+        updates = getattr(self.parent(), "updates", None)
+        if updates is not None:
+            try:
+                updates.check_finished.disconnect(self._on_update_checked)
+            except TypeError:
+                pass
+        self.update_btn.setEnabled(True)
+        if error:
+            self.update_label.setStyleSheet("color: #F87171;")
+            self.update_label.setText(f"تعذر التحقق من التحديثات: {error}")
+        elif tag and updater.is_newer(tag):
+            self.update_label.setStyleSheet("color: #FBBF24;")
+            self.update_label.setText(f"نسخة {tag} متاحة")
+        else:
+            self.update_label.setStyleSheet("color: #34D399;")
+            self.update_label.setText("انت على آخر نسخة ✓")
 
     def _sync_now(self):
         if self.sync is None or not self.sync.configured():
@@ -1379,6 +1428,72 @@ class MainWindow(QMainWindow):
         QApplication.instance().aboutToQuit.connect(self.sync.sync_blocking)
         self._update_sync_footer()
         QTimer.singleShot(2500, lambda: self.sync.sync_now("startup", force=True) if self.sync.configured() else None)
+
+        self.updates = UpdateManager(self)
+        self.updates.update_available.connect(self._offer_update)
+        self._update_progress = None
+        self.updates.start()
+
+    # -- التحديث التلقائي
+    def _offer_update(self, tag):
+        if self._update_progress is not None:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("تحديث جديد")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(f"نسخة جديدة من ebo clipboard متاحة: {tag} — انت على نسخة {__version__}.")
+        if updater.can_self_update():
+            box.setInformativeText("البرنامج هينزّل التحديث ويفتح تاني لوحده. رسايلك مش هتتأثر.")
+            yes = box.addButton("تحديث دلوقتي", QMessageBox.ButtonRole.AcceptRole)
+        else:
+            box.setInformativeText("افتح صفحة التنزيل ونزّل النسخة الجديدة.")
+            yes = box.addButton("فتح صفحة التنزيل", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("بعدين", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(yes)
+        self.show_and_raise()
+        box.exec()
+        if box.clickedButton() is not yes:
+            self.updates.dismiss(tag)
+            return
+        if not updater.can_self_update():
+            QDesktopServices.openUrl(QUrl(f"https://github.com/{updater.REPO}/releases/latest"))
+            return
+        self._start_update_download(tag)
+
+    def _start_update_download(self, tag):
+        progress = QProgressDialog(f"جاري تنزيل النسخة {tag}...", "", 0, 0, self)
+        progress.setWindowTitle("تحديث")
+        progress.setCancelButton(None)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.show()
+        self._update_progress = progress
+
+        def on_progress(done, total):
+            if total:
+                progress.setMaximum(100)
+                progress.setValue(int(done * 100 / total))
+
+        def on_finished(path, error):
+            self.updates.download_progress.disconnect(on_progress)
+            self.updates.download_finished.disconnect(on_finished)
+            progress.close()
+            self._update_progress = None
+            if error:
+                QMessageBox.warning(self, "التحديث", f"فشل التحديث: {error} — هتقدر تجرب تاني بعدين.")
+                return
+            try:
+                updater.install_and_restart(path)
+            except Exception as exc:  # noqa: BLE001
+                QMessageBox.warning(self, "التحديث", f"تعذر تركيب التحديث: {exc}")
+                return
+            QApplication.instance().quit()
+
+        self.updates.download_progress.connect(on_progress)
+        self.updates.download_finished.connect(on_finished)
+        self.updates.download(tag)
 
     def _import_messages(self):
         path, _ = QFileDialog.getOpenFileName(
