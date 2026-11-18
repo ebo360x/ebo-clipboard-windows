@@ -7,6 +7,7 @@ from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from db import Store
 from hotkeys import HotkeyListener
 from ui import MainWindow, load_app_icon
+from version import __version__
 
 INSTANCE_KEY = "ebo-clipboard-single-instance"
 
@@ -66,6 +67,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("ebo clipboard")
     app.setApplicationDisplayName("ebo clipboard")
+    app.setApplicationVersion(__version__)
     app.setWindowIcon(load_app_icon())
 
     if notify_running_instance():
