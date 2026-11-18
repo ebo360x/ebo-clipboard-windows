@@ -1050,13 +1050,17 @@ class MainWindow(QMainWindow):
             title, detail, tone = github_username, "جاري المزامنة...", "syncing"
         elif state == "error":
             title, detail, tone = github_username, "فشلت المزامنة", "error"
+        elif state == "offline":
+            title, detail, tone = github_username, "غير متصل — هيعيد المحاولة تلقائيًا", "syncing"
+        elif state == "ok" and message:
+            title, detail, tone = github_username, message, "ok"
         else:
             last = self.sync.last_sync_ms()
             detail = f"آخر مزامنة: {relative_time_ar(last)}" if last else "جاهزة للمزامنة"
             title, tone = github_username, "ok"
         self.sync_title_label.setText(title)
         self.sync_detail_label.setText(detail)
-        self.sync_detail_label.setToolTip(message if state == "error" else "")
+        self.sync_detail_label.setToolTip(message if state in ("error", "offline") else "")
         self.sync_detail_label.setProperty("state", tone)
         self.sync_detail_label.style().unpolish(self.sync_detail_label)
         self.sync_detail_label.style().polish(self.sync_detail_label)

@@ -34,7 +34,20 @@ def notify_running_instance():
         socket.waitForBytesWritten(200)
         socket.disconnectFromServer()
         return True
+
+    # A stale server can remain after a crash/forced close on Windows,
+    # which makes a fresh launch appear to "sync" incorrectly.
+    QLocalServer.removeServer(INSTANCE_KEY)
     return False
+
+
+def start_single_instance_server():
+    server = QLocalServer()
+    if not server.listen(INSTANCE_KEY):
+        QLocalServer.removeServer(INSTANCE_KEY)
+        if not server.listen(INSTANCE_KEY):
+            raise RuntimeError(f"Failed to start single-instance server: {server.errorString()}")
+    return server
 
 
 def main():
@@ -45,9 +58,7 @@ def main():
     if notify_running_instance():
         sys.exit(0)
 
-    QLocalServer.removeServer(INSTANCE_KEY)
-    instance_server = QLocalServer()
-    instance_server.listen(INSTANCE_KEY)
+    instance_server = start_single_instance_server()
 
     app.setQuitOnLastWindowClosed(False)
     app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)

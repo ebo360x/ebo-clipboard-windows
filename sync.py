@@ -6,11 +6,11 @@ data.json من المستودع، وندمجه مع البيانات المحل�
 """
 import base64
 import hashlib
+import http.client
 import json
 import threading
 import time
-import urllib.error
-import urllib.request
+import urllib.parse
 from collections import namedtuple
 
 from db import SYNCED_SETTINGS, image_digest, now_ms
@@ -28,6 +28,10 @@ MergePlan = namedtuple("MergePlan", "merged changed_local needs_push images")
 
 class SyncError(Exception):
     pass
+
+
+class NetworkError(SyncError):
+    """مشكلة اتصال مؤقتة (النت فاصل أو بطيء) — مش خطأ حقيقي في المزامنة."""
 
 
 class SyncConflict(Exception):
@@ -129,30 +133,63 @@ class GitHubBackend:
         self.base = base_url.rstrip("/")
         self.timeout = timeout
         self._branch = None
+        self._conn = None
 
     # -- HTTP
+    # اتصال واحد بيتعاد استخدامه (keep-alive) بدل اتصال جديد لكل طلب، ومحاولات
+    # إعادة عند أخطاء الشبكة المؤقتة أو أخطاء 5xx من GitHub.
+    RETRY_DELAYS = (1, 3, 6)
+
+    def _connection(self):
+        if self._conn is None:
+            parsed = urllib.parse.urlsplit(self.base)
+            self._conn = http.client.HTTPSConnection(parsed.hostname, parsed.port or 443, timeout=self.timeout)
+        return self._conn
+
+    def close(self):
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._conn = None
+
     def _call(self, method, path, body=None):
-        url = f"{self.base}/repos/{self.repo}{path}"
+        url_path = urllib.parse.urlsplit(self.base).path.rstrip("/") + f"/repos/{self.repo}{path}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
-        request = urllib.request.Request(url, data=data, method=method, headers={
+        headers = {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "ebo-clipboard-Sync",
             "Content-Type": "application/json",
-        })
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        }
+        last_error = None
+        for attempt in range(len(self.RETRY_DELAYS) + 1):
+            if attempt:
+                time.sleep(self.RETRY_DELAYS[attempt - 1])
+            try:
+                conn = self._connection()
+                conn.request(method, url_path, body=data, headers=headers)
+                response = conn.getresponse()
                 raw, status = response.read(), response.status
-        except urllib.error.HTTPError as error:
-            raw, status = error.read(), error.code
-        except (urllib.error.URLError, OSError) as error:
-            raise SyncError(f"تعذر الاتصال بـ GitHub: {getattr(error, 'reason', error)}") from error
-        try:
-            payload = json.loads(raw) if raw else {}
-        except ValueError:
-            payload = {}
-        return status, payload
+                if response.getheader("Connection", "").lower() == "close":
+                    self.close()
+            except (http.client.HTTPException, OSError) as error:
+                self.close()
+                last_error = error
+                continue
+            if status >= 500 or status == 429:
+                last_error = SyncError(f"GitHub {status}")
+                continue
+            try:
+                payload = json.loads(raw) if raw else {}
+            except ValueError:
+                payload = {}
+            return status, payload
+        if isinstance(last_error, SyncError):
+            raise SyncError(f"GitHub مش متاح دلوقتي ({last_error})")
+        raise NetworkError(f"تعذر الاتصال بـ GitHub: {last_error or 'timed out'}") from last_error
 
     def _explain(self, status, payload):
         message = payload.get("message", "") if isinstance(payload, dict) else ""
@@ -360,7 +397,7 @@ except Exception:  # pragma: no cover - للاختبارات من غير Qt
 
 if QTimer is not None:
     class SyncManager(QObject):
-        status_changed = pyqtSignal(str, str)   # state: off | syncing | ok | error
+        status_changed = pyqtSignal(str, str)   # state: off | syncing | ok | offline | error
         data_changed = pyqtSignal()
         _fetched = pyqtSignal(object, object, object)
         _pushed = pyqtSignal(object, object)
@@ -381,6 +418,11 @@ if QTimer is not None:
             self._debounce = QTimer(self)
             self._debounce.setSingleShot(True)
             self._debounce.timeout.connect(lambda: self.sync_now("changes", force=False))
+            # إعادة محاولة تلقائية لما النت يفصل (30ث ثم 60ث ثم كل 2 دقيقة)
+            self._retry = QTimer(self)
+            self._retry.setSingleShot(True)
+            self._retry.timeout.connect(lambda: self.sync_now("retry", force=True))
+            self._offline_count = 0
             self._fetched.connect(self._on_fetched)
             self._pushed.connect(self._on_pushed)
 
@@ -388,10 +430,13 @@ if QTimer is not None:
         def configured(self):
             return bool(self.store.get_setting("sync_repo")) and bool(load_token(self.store))
 
-        def make_backend(self, timeout=20):
+        def make_backend(self, timeout=15, retries=True):
             if self.backend_factory is not None:
                 return self.backend_factory()
-            return GitHubBackend(self.store.get_setting("sync_repo"), load_token(self.store), timeout=timeout)
+            backend = GitHubBackend(self.store.get_setting("sync_repo"), load_token(self.store), timeout=timeout)
+            if not retries:
+                backend.RETRY_DELAYS = ()
+            return backend
 
         def last_sync_ms(self):
             try:
@@ -418,6 +463,7 @@ if QTimer is not None:
             if self._running:
                 self._pending = True
                 return
+            self._retry.stop()
             self._running = True
             self._attempt = 0
             self._force = force
@@ -452,21 +498,21 @@ if QTimer is not None:
 
         def _on_fetched(self, remote, images, error):
             if error is not None:
-                self._finish("error", self._describe(error))
+                self._finish("error", self._describe(error), error)
                 return
             if remote is None:
-                self._finish("ok", "")
+                self._finish("ok", "لا توجد تغييرات جديدة على GitHub")
                 return
             try:
                 plan = self._engine.merge_phase(remote, images)
             except Exception as exc:  # noqa: BLE001
-                self._finish("error", self._describe(exc))
+                self._finish("error", self._describe(exc), exc)
                 return
             if plan.changed_local:
                 self.data_changed.emit()
             if not plan.needs_push:
                 self._engine.record(remote.commit, plan.merged)
-                self._finish("ok", "")
+                self._finish("ok", "اكتملت المزامنة؛ لا توجد تغييرات تحتاج إلى رفع")
                 return
             self._remote, self._plan = remote, plan
             backend, engine = self._engine.backend, self._engine
@@ -490,16 +536,26 @@ if QTimer is not None:
                 self._finish("error", "تعارض متكرر مع جهاز تاني، جرّب بعد شوية")
                 return
             if error is not None:
-                self._finish("error", self._describe(error))
+                self._finish("error", self._describe(error), error)
                 return
             self._engine.record(commit, self._plan.merged)
-            self._finish("ok", "")
+            self._finish("ok", "تم رفع التغييرات إلى GitHub")
 
         def _describe(self, error):
             return str(error) if isinstance(error, SyncError) else f"خطأ غير متوقع: {error}"
 
-        def _finish(self, state, message):
+        def _finish(self, state, message, error=None):
             self._running = False
+            if self._engine is not None and hasattr(self._engine.backend, "close"):
+                self._engine.backend.close()
+            if isinstance(error, NetworkError):
+                # مش خطأ حقيقي: النت فاصل. نعيد المحاولة لوحدنا من غير ما نزعج المستخدم.
+                self._offline_count += 1
+                delay = (30, 60)[self._offline_count - 1] if self._offline_count <= 2 else 120
+                self._retry.start(delay * 1000)
+                state, message = "offline", f"{message} — هيعيد المحاولة تلقائيًا بعد {delay} ثانية"
+            elif state == "ok":
+                self._offline_count = 0
             self._set(state, message)
             if self._pending:
                 self._pending = False
@@ -512,6 +568,11 @@ if QTimer is not None:
             try:
                 if not self.is_dirty():
                     return
-                SyncEngine(self.store, self.make_backend(timeout=timeout)).run_cycle()
+                backend = self.make_backend(timeout=timeout, retries=False)
+                try:
+                    SyncEngine(self.store, backend).run_cycle()
+                finally:
+                    if hasattr(backend, "close"):
+                        backend.close()
             except Exception as error:  # noqa: BLE001
                 print(f"[ebo-clipboard] final sync failed: {error}")
