@@ -1,5 +1,13 @@
 import sys
 import signal
+
+try:
+    # التحقق من شهادات HTTPS عن طريق ويندوز نفسه (زي المتصفح) بدل قائمة بايثون،
+    # علشان أجهزة ناقصها شهادات جذر أو عليها أنتي فيروس بيفحص HTTPS ماتفشلش بـ CERTIFICATE_VERIFY_FAILED
+    import truststore
+    truststore.inject_into_ssl()
+except Exception:  # noqa: BLE001
+    pass
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QObject, pyqtSignal, Qt
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket

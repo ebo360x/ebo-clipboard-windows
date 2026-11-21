@@ -9,7 +9,7 @@ import tempfile
 
 from PyInstaller.archive.readers import CArchiveReader, ZlibArchiveReader
 
-REQUIRED = ("keyring", "keyring.backends.Windows", "sync", "db", "ui", "hotkeys", "version", "updater", "ditto_import", "PyQt6")
+REQUIRED = ("keyring", "keyring.backends.Windows", "sync", "db", "ui", "hotkeys", "version", "updater", "ditto_import", "truststore", "PyQt6")
 REQUIRED_DATA = ("icon.png",)
 
 
