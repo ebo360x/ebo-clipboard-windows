@@ -6,6 +6,8 @@ import hashlib
 import time
 import uuid
 
+import ditto_import
+
 DB_PATH = os.path.expanduser("~/.config/ebo-clipboard/data.db")
 SHEETS_CACHE_TTL_SECONDS = 15 * 60
 _UNSET = object()
@@ -414,19 +416,30 @@ class Store:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def import_zdb(self, path, merge=True):
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        if ditto_import.is_ditto_backup(path):
+            data = {"groups": ditto_import.read_ditto_backup(path)}
+        else:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
         if not merge:
             stamp = now_ms()
             self.conn.execute("UPDATE messages SET deleted = 1, updated_at = ? WHERE deleted = 0", (stamp,))
             self.conn.execute("UPDATE groups SET deleted = 1, updated_at = ? WHERE deleted = 0", (stamp,))
             self.conn.commit()
+        used_keybinds = {m["keybind"] for m in self.list_all_messages() if m["keybind"]}
+        toggle_keybind = self.get_setting("toggle_window_keybind")
+        if toggle_keybind:
+            used_keybinds.add(toggle_keybind)
         for g in data.get("groups", []):
             gid = self.add_group(g["name"])
             for m in g.get("messages", []):
-                image = base64.b64decode(m["image"], validate=True) if m.get("image") else None
-                mid = self.add_message(gid, m["name"], m.get("content", ""), image=image)
-                if m.get("keybind"):
+                image = m.get("image")
+                if isinstance(image, str):
+                    image = base64.b64decode(image, validate=True)
+                mid = self.add_message(gid, m["name"], m.get("content", ""), image=image or None)
+                # لو الاختصار مستخدم في رسالة تانية بنسيبه فاضي بدل ما الاتنين يتخانقوا
+                if m.get("keybind") and m["keybind"] not in used_keybinds:
                     self.set_keybind(mid, m["keybind"])
+                    used_keybinds.add(m["keybind"])
                 if m.get("starred"):
                     self.set_starred(mid, True)

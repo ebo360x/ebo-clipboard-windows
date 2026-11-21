@@ -24,6 +24,7 @@ from updater import UpdateManager
 from version import __version__
 
 import inputsim
+import ditto_import
 
 ICON_PATH = os.path.join(
     getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))),
@@ -1338,6 +1339,8 @@ class MainWindow(QMainWindow):
         export_action.triggered.connect(self._export_messages)
         import_action = backup_menu.addAction("استيراد نسخة احتياطية (.zdb)")
         import_action.triggered.connect(self._import_messages)
+        ditto_action = backup_menu.addAction("استيراد من Ditto")
+        ditto_action.triggered.connect(self._import_ditto)
         backup_button = QPushButton("  نسخة احتياطية")
         self.backup_button = backup_button
         backup_button.setToolTip("نسخة احتياطية")
@@ -1507,6 +1510,23 @@ class MainWindow(QMainWindow):
             self._refresh_messages()
             self.refresh_bindings_cb()
             QMessageBox.information(self, "استيراد", "تم استيراد الرسائل بنجاح")
+        except Exception as exc:
+            show_error_dialog(self, "فشل الاستيراد", str(exc))
+
+    def _import_ditto(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "استيراد من Ditto", "", "Ditto (*.zdb *.db *.gz);;All files (*)"
+        )
+        if not path:
+            return
+        try:
+            if not ditto_import.is_ditto_backup(path):
+                raise ValueError("الملف ده مش نسخة احتياطية من Ditto")
+            self.store.import_zdb(path, merge=True)
+            self._refresh_groups()
+            self._refresh_messages()
+            self.refresh_bindings_cb()
+            QMessageBox.information(self, "استيراد", "تم استيراد رسائل Ditto بنجاح")
         except Exception as exc:
             show_error_dialog(self, "فشل الاستيراد", str(exc))
 
